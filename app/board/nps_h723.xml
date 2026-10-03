@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Board description: Network-Power-Switch on NUCLEO-H723ZG
+  Vendor:  STM
+  MCU:     STM32H723ZGTx — ARM Cortex-M7, 550 MHz, 1 MB Flash, 128 KB DTCM
+
+  Relay outputs are deliberately NOT declared here. The OS GPIO path
+  (gpio_mgmt) configures a pin as output with ODR=0 and ignores
+  active_state, which would energise an active-LOW relay for the whole
+  boot. app/src/relay.c owns those four pins (see app/inc/conf_app.h).
+
+  Key H723 differences from F411
+  ───────────────────────────────
+  GPIO is on AHB4 (0x58020000), not AHB1 — clock enable uses AHB4ENR.
+  USART3 VCP (PD8/PD9) is the virtual COM port on Nucleo-H723ZG STLink.
+  I2C uses 400 kHz fast mode with dedicated timing register (not CCR).
+
+  Pin fields
+  ──────────
+    port   : GPIO port letter  (A..H)
+    pin    : GPIO pin number   (0–15)
+    af     : Alternate function number (see DS13195 Table 11/12)
+    speed  : low | medium | high | very_high
+    pull   : none | pullup | pulldown
+
+  Alternate functions used
+  ────────────────────────
+    AF7  USART1 (PA9/PA10), USART3 (PD8/PD9)
+-->
+
+<board name="NPS_NUCLEO_H723ZG"
+       vendor="STM"
+       mcu="STM32H723ZGTx"
+       description="Ethernet MQTT 4-channel relay controller">
+
+  <peripherals>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         UART / USART
+         ═══════════════════════════════════════════════════════════ -->
+
+    <!--
+      UART_APP → USART1  PA9/TX  PA10/RX
+      Secondary application serial port (e.g. external module / wireless).
+      AF7 = USART1 on STM32H723 pins PA9 / PA10.
+      USART1 is clocked from APB2 (up to 275 MHz on H723).
+    -->
+    <uart id="UART_APP"
+          dev_id="0"
+          instance="USART1"
+          baudrate="115200"
+          word_len="8"
+          stop_bits="1"
+          parity="none"
+          mode="tx_rx">
+      <tx   port="A" pin="9"  af="7" speed="very_high" pull="none"/>
+      <rx   port="A" pin="10" af="7" speed="very_high" pull="none"/>
+      <irq  name="USART1_IRQn" priority="5"/>
+    </uart>
+
+    <!--
+      UART_DEBUG → USART3  PD8/TX  PD9/RX
+      Virtual COM port connected to STLink on Nucleo-H723ZG.
+      Role "shell" — OS shell CLI; RX via RXNE ISR, TX via TXEIE drain.
+      AF7 = USART3 on STM32H723 pins PD8 / PD9.
+      USART3 is clocked from APB1L (up to 137.5 MHz on H723).
+    -->
+    <uart id="UART_DEBUG"
+          dev_id="1"
+          instance="USART3"
+          baudrate="115200"
+          word_len="8"
+          stop_bits="1"
+          parity="none"
+          mode="tx_rx"
+          role="shell">
+      <tx   port="D" pin="8" af="7" speed="very_high" pull="none"/>
+      <rx   port="D" pin="9" af="7" speed="very_high" pull="none"/>
+      <irq  name="USART3_IRQn" priority="5"/>
+    </uart>
+
+
+
+    <!-- ═══════════════════════════════════════════════════════════
+         I2C
+         ═══════════════════════════════════════════════════════════ -->
+
+    <!--
+      I2C_SENSOR_BUS → I2C1  PB8/SCL  PB9/SDA
+      Unused by the application; declared because FreeRTOS-OS requires
+      BOARD_IIC_COUNT >= 1 (include/ipc/global_var.h). PB8/PB9 = Arduino D15/D14.
+      AF4 = I2C1 on STM32H723 pins PB8 / PB9.
+      I2C1 is clocked from APB1L.
+    -->
+    <i2c id="I2C_SENSOR_BUS"
+         dev_id="0"
+         instance="I2C1"
+         clock_hz="400000"
+         addr_mode="7bit"
+         dual_addr="disable">
+      <scl   port="B" pin="8" af="4" speed="very_high" pull="none"/>
+      <sda   port="B" pin="9" af="4" speed="very_high" pull="none"/>
+      <irq_ev name="I2C1_EV_IRQn" priority="6"/>
+      <irq_er name="I2C1_ER_IRQn" priority="6"/>
+    </i2c>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         SPI
+         ═══════════════════════════════════════════════════════════ -->
+
+    <!--
+      SPI_FLASH_BUS → SPI1  PA5/SCK  PA6/MISO  PA7/MOSI  (software NSS)
+      SPI master, APB2/16 ≈ 17 MHz for external flash / peripheral chips.
+      AF5 = SPI1 on STM32H723 pins PA5 / PA6 / PA7.
+
+      PIN CONFLICT: PA7 is also the RMII ETH CRS_DV (carrier/data-valid, AF11).
+      SPI1 and the on-board LAN8742 Ethernet cannot share PA7, so the whole SPI
+      subsystem is guarded off whenever the network stack is built in. With
+      CONFIG_NET=y the SPI device IDs/table/clock/handle all vanish and PA7 is
+      left for hal_eth_stm32's MspInit; with CONFIG_NET unset SPI is available.
+    -->
+    <spi id="SPI_FLASH_BUS"
+         dev_id="0"
+         instance="SPI1"
+         guard="!defined(CONFIG_NET)"
+         mode="master"
+         direction="2lines"
+         data_size="8"
+         clk_polarity="low"
+         clk_phase="1edge"
+         nss="soft"
+         baud_prescaler="16"
+         bit_order="msb">
+      <sck  port="A" pin="5" af="5" speed="very_high" pull="none"/>
+      <miso port="A" pin="6" af="5" speed="very_high" pull="none"/>
+      <mosi port="A" pin="7" af="5" speed="very_high" pull="none"/>
+      <!-- nss_pin omitted → software NSS -->
+      <irq  name="SPI1_IRQn" priority="6"/>
+    </spi>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         GPIO
+         ═══════════════════════════════════════════════════════════ -->
+
+    <!-- PB0 — LD1 green: network/MQTT status (blink = connecting, solid = online) -->
+    <gpio id="LED_NET"
+          dev_id="0"
+          port="B" pin="0"
+          mode="output_pp"
+          pull="none"
+          speed="low"
+          active_state="high"
+          initial_state="inactive"/>
+
+    <!-- PE1 — LD2 yellow: mirrors relay channel 1 -->
+    <gpio id="LED_RELAY"
+          dev_id="1"
+          port="E" pin="1"
+          mode="output_pp"
+          pull="none"
+          speed="low"
+          active_state="high"
+          initial_state="inactive"/>
+
+    <!-- PC13 — B1 user push-button (active-high, external pull-down on board) -->
+    <gpio id="BTN_USER"
+          dev_id="2"
+          port="C" pin="13"
+          mode="it_rising"
+          pull="none"
+          speed="low"
+          active_state="high"
+          initial_state="inactive"/>
+
+    <!-- PB14 — LD3 red: fault (TLS/auth failure, broker unreachable) -->
+    <gpio id="LED_FAULT"
+          dev_id="3"
+          port="B" pin="14"
+          mode="output_pp"
+          pull="none"
+          speed="low"
+          active_state="high"
+          initial_state="inactive"/>
+
+  </peripherals>
+
+</board>

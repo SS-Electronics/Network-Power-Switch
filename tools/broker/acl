@@ -1,0 +1,11 @@
+# Topic ACL — mirrors docs/mqtt_api.md §Broker ACL.
+# %u = username; device usernames equal their device id.
+
+# Every device: read its own commands, write its own state and status.
+pattern read  nps/%u/relay/+/set
+pattern write nps/%u/relay/+/state
+pattern write nps/%u/status
+
+# Backend service: full access to the nps tree.
+user nps-server
+topic readwrite nps/#

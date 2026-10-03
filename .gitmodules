@@ -1,0 +1,7 @@
+[submodule "FreeRTOS-OS"]
+	path = FreeRTOS-OS
+	url = https://github.com/SS-Electronics/FreeRTOS-OS.git
+[submodule "lib/mbedtls"]
+	path = lib/mbedtls
+	url = https://github.com/Mbed-TLS/mbedtls.git
+	shallow = true

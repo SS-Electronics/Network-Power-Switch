@@ -53,3 +53,24 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# ── Network-Power-Switch ────────────────────────────────────────────────
+# Per-deployment credentials + CA (template: app/inc/conf_secrets.example.h)
+app/inc/conf_secrets.h
+# Bench broker PKI and passwords
+tools/broker/out/
+# Generated from app/board/*.xml and the Kconfig preset (top-level `make`)
+app/board/autoconf.h
+app/board/board_config.c
+app/board/board_config.h
+app/board/board_device_ids.h
+app/board/board_handles.h
+app/board/irq_hw_conf.h
+app/board/irq_hw_init_generated.c
+app/board/irq_hw_init_generated.h
+app/board/irq_periph_dispatch_generated.c
+app/board/irq_periph_handlers_generated.h
+app/board/irq_periph_vectors_generated.inc
+app/board/irq_table_generated.c
+app/board/stm32h7xx_hal_conf.h
+build-host/
