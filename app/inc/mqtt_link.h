@@ -1,10 +1,9 @@
 /**
  * @file        mqtt_link.h
- * @brief       MQTT-over-TLS session to the broker: commands in, state out
+ * @brief       MQTT-over-TLS session through the ESP8266: commands in, state out
  *
- * @info        One task owns the session. lwIP MQTT/altcp callbacks run in
- *              the tcpip thread and only post events to it; every lwIP call
- *              the task makes is under LOCK_TCPIP_CORE(). Contract:
+ * @info        One task owns the ESP8266 (esp_at.c) and walks it through
+ *              reset → Wi-Fi join → MQTT connect → online. Contract:
  *              docs/mqtt_api.md.
  */
 
@@ -15,7 +14,7 @@
 
 /**
  * @brief Create the MQTT task and hook the relay observer.
- * @note  Call from app_main() after relay_init() and net_service_start().
+ * @note  Call from app_main() after relay_init() and esp_at_init().
  * @return OS_ERR_NONE or a negative OS_ERR_* code.
  */
 int32_t mqtt_link_start(void);

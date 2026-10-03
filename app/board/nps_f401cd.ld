@@ -1,17 +1,20 @@
 /*
-File:        nps_h723_app.ld
+ * nps_f401cd.ld — Network-Power-Switch linker script for STM32F401CDU6
+ * (384 KB flash, 96 KB SRAM). Copy of FreeRTOS-OS
+ * arch/devices/STM/STM32F4xx/STM32F411/stm32_f411_FLASH.ld with the memory
+ * regions resized: the OS builds this part through its STM32F411xE path
+ * (see app/kconfig_f401.conf), whose script assumes 512 KB / 128 KB.
+ * Standalone image at 0x08000000 (no bootloader on this board).
+ */
+/*
+File:        stm32_f411_FLASH.ld
 Author:      Subhajit Roy
              subhajitroy005@gmail.com
 
 Module:      linker script
-Info:        STM32H723ZG — Network-Power-Switch application image.
-             Copy of FreeRTOS-OS stm32_h723_FLASH.ld relinked behind the
-             STM32H723 Ethernet bootloader: sector 0 (0x08000000, 128 KB)
-             belongs to the bootloader, the application starts at
-             0x08020000 (sector 1). The bootloader sets SCB->VTOR to
-             0x08020000 before jumping, so no VTOR write is needed here.
-             All code + rodata in FLASH,
-             .data in DTCM (LMA in FLASH), DMA buffers in AXI SRAM.
+Info:        STM32F411VETx — Cortex-M4, 512 KB Flash, 128 KB RAM
+             Flat single-region layout: all code + rodata in FLASH,
+             .data in RAM (LMA in FLASH).
              --gc-sections removes unreferenced functions/data.
 
 Dependency:  None
@@ -33,19 +36,21 @@ along with FreeRTOS-KERNEL. If not, see <https://www.gnu.org/licenses/>.
 */
 
 /*****************************************************************************
-*  Target      : STM32H723ZGTx
+*  Target      : STM32F411VETx
 *
-*  Datasheet   : RM0468 — STM32H723/733/725/735/730 Reference Manual
+*  Datasheet   : RM0383 — STM32F411xC/E Reference Manual
 *
-*  Memory map
-*  ──────────
-*  DTCM  (primary RAM) : 128 KB  @ 0x20000000  (CPU zero-wait, not DMA-able)
-*  ITCM                :  64 KB  @ 0x00000000  (not used here)
-*  AXI SRAM (D1)       : 320 KB  @ 0x24000000  (DMA-accessible, optional)
-*  SRAM1/2 (D2)        :  32 KB  @ 0x30000000
-*  SRAM4   (D3)        :  16 KB  @ 0x38000000
+*  Memory      : Flash 512 KB @ 0x08000000
+*              : RAM   128 KB @ 0x20000000
 *
-*  Flash (app slot)   : 896 KB  @ 0x08020000  (sectors 1..7)
+*  Flash sectors
+*  Sector 0:  0x08000000 – 0x08003FFF  (16 KB)
+*  Sector 1:  0x08004000 – 0x08007FFF  (16 KB)
+*  Sector 2:  0x08008000 – 0x0800BFFF  (16 KB)
+*  Sector 3:  0x0800C000 – 0x0800FFFF  (16 KB)
+*  Sector 4:  0x08010000 – 0x0801FFFF  (64 KB)
+*  Sector 5:  0x08020000 – 0x0803FFFF  (128 KB)
+*  Sector 6:  0x08040000 – 0x0807FFFF  (256 KB)
 ****************************************************************************/
 
 ENTRY(Reset_Handler)
@@ -57,14 +62,12 @@ _Min_Stack_Size = 0x400;   /* 1 KB      */
 
 MEMORY
 {
-  DTCM          (xrw) : ORIGIN = 0x20000000, LENGTH = 128K   /* primary CPU RAM         */
-  AXI_SRAM      (xrw) : ORIGIN = 0x24000000, LENGTH = 320K   /* DMA-accessible SRAM     */
-  RAM_D2        (xrw) : ORIGIN = 0x30000000, LENGTH = 32K    /* D2 SRAM1/2 — ETH DMA    */
-  FLASH         (rx)  : ORIGIN = 0x08020000, LENGTH = 896K   /* app slot after bootloader */
+  RAM           (xrw) : ORIGIN = 0x20000000, LENGTH = 96K    /* STM32F401xD: 96 KB SRAM  */
+  FLASH         (rx)  : ORIGIN = 0x08000000, LENGTH = 384K   /* STM32F401CD: 384 KB flash */
 }
 
-/* Top of DTCM → initial stack pointer */
-_estack = ORIGIN(DTCM) + LENGTH(DTCM);
+/* Highest address of the user mode stack */
+_estack = ORIGIN(RAM) + LENGTH(RAM);
 
 SECTIONS
 {
@@ -149,7 +152,7 @@ SECTIONS
     . = ALIGN(4);
   } > FLASH
 
-  /* Initialized data: LMA in Flash, VMA in DTCM */
+  /* Initialized data: LMA in Flash, VMA in RAM */
   _sidata = LOADADDR(.data);
   .data :
   {
@@ -159,46 +162,7 @@ SECTIONS
     *(.data*)
     . = ALIGN(4);
     _edata = .;
-  } > DTCM AT > FLASH
-
-  /* AXI SRAM — DMA-accessible buffers (opt-in via __attribute__((section(".axi_data")))) */
-  .axi_data (NOLOAD) :
-  {
-    . = ALIGN(32);
-    __axi_data_start = .;
-    KEEP(*(.axi_data))
-    KEEP(*(.axi_data*))
-    . = ALIGN(32);
-    __axi_data_end = .;
-  } > AXI_SRAM
-
-  /* TFLite Micro tensor arena — too large for DTCM, lives in AXI SRAM.
-   * Opt-in via __attribute__((section(".inference_arena"))) in the ECG app.
-   * NOLOAD: uninitialised scratch, not zeroed at boot (the interpreter owns it). */
-  .inference_arena (NOLOAD) :
-  {
-    . = ALIGN(16);
-    __inference_arena_start = .;
-    KEEP(*(.inference_arena))
-    KEEP(*(.inference_arena*))
-    . = ALIGN(16);
-    __inference_arena_end = .;
-  } > AXI_SRAM
-
-  /* D2 SRAM — Ethernet DMA descriptors and packet buffers.
-   * The MAC DMA can reach D2 (0x30000000) but not DTCM. The ETH driver makes
-   * this window MPU non-cacheable at runtime, so contents stay coherent with
-   * DMA. NOLOAD: scratch, not zeroed at boot (the driver owns initialisation).
-   * Opt-in via __attribute__((section(".eth_d2"))). */
-  .eth_d2 (NOLOAD) :
-  {
-    . = ALIGN(4);
-    __eth_d2_start = .;
-    KEEP(*(.eth_d2))
-    KEEP(*(.eth_d2*))
-    . = ALIGN(4);
-    __eth_d2_end = .;
-  } > RAM_D2
+  } > RAM AT > FLASH
 
   /* Uninitialized data (BSS) */
   .bss (NOLOAD) :
@@ -210,7 +174,7 @@ SECTIONS
     *(COMMON)
     . = ALIGN(4);
     __bss_end__ = .;
-  } > DTCM
+  } > RAM
 
   /* Heap and stack reservation */
   ._user_heap_stack :
@@ -221,7 +185,7 @@ SECTIONS
     . = . + _Min_Heap_Size;
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
-  } > DTCM
+  } > RAM
 
   /* Not-initialised section — placed AFTER heap/stack so it lies outside
    * [__bss_start__, __bss_end__] and is never zeroed by the BSS clear loop.
@@ -235,7 +199,7 @@ SECTIONS
     KEEP(*(.noinit.*))
     . = ALIGN(4);
     __noinit_end = .;
-  } > DTCM
+  } > RAM
 
   /DISCARD/ :
   {

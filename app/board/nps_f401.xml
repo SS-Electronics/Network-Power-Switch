@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Board description: Network-Power-Switch on STM32F401CDU6 (Black Pill style)
+  MCU:  STM32F401CDU6 — Cortex-M4F, 84 MHz, 384 KB flash, 96 KB SRAM, UFQFPN48
+
+  mcu="STM32F411VET6": FreeRTOS-OS has no maintained F401 entry, and the
+  F401 is a peripheral subset of the F411 (same core, USART1/2/6, I2C1-3,
+  SPI1-4, same AF map on these pins). The generator's F411 clock tree
+  (100 MHz) is rewritten to 84 MHz by the top-level Makefile `gen` target.
+
+  Relay outputs and the ESP8266 reset line are NOT declared here: the OS
+  gpio path inits outputs with ODR=0 and ignores active_state, which would
+  energise active-LOW relays (and hold the ESP in reset) during boot.
+  app/src/relay.c and app/src/esp_at.c own those pins (app/inc/conf_app.h).
+
+  I2C1 and SPI1 are unused by the application but required by FreeRTOS-OS
+  (BOARD_IIC_COUNT / BOARD_SPI_COUNT); their pins are left free on the board.
+-->
+
+<board name="NPS_F401CDU6"
+       vendor="STM"
+       mcu="STM32F411VET6"
+       description="ESP8266 MQTT/TLS 4-channel relay controller">
+
+  <peripherals>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         UART / USART
+         ═══════════════════════════════════════════════════════════ -->
+
+    <!--
+      UART_ESP → USART1  PA9/TX → ESP8266 RX,  PA10/RX ← ESP8266 TX
+      ESP-AT firmware, 115200 8N1, no flow control. The app subscribes to
+      IRQ_ID_UART_RX(UART_ESP) itself (the OS only buffers the shell UART).
+    -->
+    <uart id="UART_ESP"
+          dev_id="0"
+          instance="USART1"
+          baudrate="115200"
+          word_len="8"
+          stop_bits="1"
+          parity="none"
+          mode="tx_rx">
+      <tx   port="A" pin="9"  af="7" speed="very_high" pull="none"/>
+      <rx   port="A" pin="10" af="7" speed="very_high" pull="pullup"/>
+      <irq  name="USART1_IRQn" priority="5"/>
+    </uart>
+
+    <!--
+      UART_DEBUG → USART2  PA2/TX  PA3/RX — console: OS shell + printk.
+      Connect a 3.3 V USB-UART adapter, 115200 8N1.
+    -->
+    <uart id="UART_DEBUG"
+          dev_id="1"
+          instance="USART2"
+          baudrate="115200"
+          word_len="8"
+          stop_bits="1"
+          parity="none"
+          mode="tx_rx"
+          role="shell">
+      <tx   port="A" pin="2" af="7" speed="very_high" pull="none"/>
+      <rx   port="A" pin="3" af="7" speed="very_high" pull="pullup"/>
+      <irq  name="USART2_IRQn" priority="5"/>
+    </uart>
+
+
+    <!-- ═══════════════════════════════════════════════════════════
+         I2C
+         ═══════════════════════════════════════════════════════════ -->
+
+    <!--
+      I2C_SENSOR_BUS → I2C1  PB6/SCL  PB9/SDA
+      Unused (OS requirement). AF4 = I2C1 on PB6 / PB9.
+    -->
+    <i2c id="I2C_SENSOR_BUS"
+         dev_id="0"
+         instance="I2C1"
+         clock_hz="400000"
+         addr_mode="7bit"
+         dual_addr="disable">
+      <scl   port="B" pin="6" af="4" speed="very_high" pull="none"/>
+      <sda   port="B" pin="9" af="4" speed="very_high" pull="none"/>
+      <irq_ev name="I2C1_EV_IRQn" priority="6"/>
+      <irq_er name="I2C1_ER_IRQn" priority="6"/>
+    </i2c>
+
+
+    <!-- ═══════════════════════════════════════════════════════════
+         SPI
+         ═══════════════════════════════════════════════════════════ -->
+
+    <!--
+      SPI_FLASH_BUS → SPI1  PA5/SCK  PA6/MISO  PA7/MOSI  (software NSS)
+      Unused (OS requirement). AF5 = SPI1 on PA5 / PA6 / PA7.
+    -->
+    <spi id="SPI_FLASH_BUS"
+         dev_id="0"
+         instance="SPI1"
+         mode="master"
+         direction="2lines"
+         data_size="8"
+         clk_polarity="low"
+         clk_phase="1edge"
+         nss="soft"
+         baud_prescaler="16"
+         bit_order="msb">
+      <sck  port="A" pin="5" af="5" speed="very_high" pull="none"/>
+      <miso port="A" pin="6" af="5" speed="very_high" pull="none"/>
+      <mosi port="A" pin="7" af="5" speed="very_high" pull="none"/>
+      <!-- nss_pin omitted → software NSS -->
+      <irq  name="SPI1_IRQn" priority="6"/>
+    </spi>
+
+
+    <!-- ═══════════════════════════════════════════════════════════
+         GPIO
+         ═══════════════════════════════════════════════════════════ -->
+
+    <!-- PC13 — on-board LED, active-LOW. Network status (see app/src/mqtt_link.c).
+         The OS ignores active_state, so the app inverts: CLEAR = LED on. -->
+    <gpio id="LED_NET"
+          dev_id="0"
+          port="C" pin="13"
+          mode="output_pp"
+          pull="none"
+          speed="low"
+          active_state="low"
+          initial_state="inactive"/>
+
+    <!-- PA0 — KEY push-button to GND, active-LOW, internal pull-up -->
+    <gpio id="BTN_USER"
+          dev_id="1"
+          port="A" pin="0"
+          mode="it_falling"
+          pull="pullup"
+          speed="low"
+          active_state="low"
+          initial_state="inactive"/>
+
+  </peripherals>
+
+</board>

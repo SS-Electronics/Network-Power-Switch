@@ -1,14 +1,17 @@
 # Network-Power-Switch — MQTT API (device ⇄ server)
 
 This is the contract between the relay board firmware and the backend that
-the Android app talks to. Firmware version **1.0.0**. Source of truth for the
-firmware side: `app/inc/conf_app.h`, `app/src/cmd_codec.c`,
-`app/src/mqtt_link.c`.
+the Android app talks to. Firmware version **2.0.0** (STM32F401CDU6 + ESP8266).
+Source of truth for the firmware side: `app/inc/conf_app.h`,
+`app/src/cmd_codec.c`, `app/src/mqtt_link.c`.
+
+The topic/payload contract is identical to 1.0.0 (NUCLEO-H723ZG Ethernet
+build); only the transport underneath changed.
 
 ```
- Android app ──HTTPS──▶ Server API ──MQTT/TLS──▶ Broker ◀──MQTT/TLS── Board (NUCLEO-H723ZG)
-                         (publishes /set,                    (subscribes /set,
-                          reads /state, /status)              publishes /state, /status)
+ Android app ──HTTPS──▶ Server API ──MQTT/TLS──▶ Broker ◀──MQTT/TLS── ESP8266 ◀─UART/AT─▶ STM32F401
+                         (publishes /set,                    (Wi-Fi, TLS,        (relays, button,
+                          reads /state, /status)              MQTT client)        protocol logic)
 ```
 
 The board only ever dials **out** to the broker, so it works behind any NAT
@@ -23,9 +26,9 @@ server holds the broker credentials.
 |---|---|
 | Protocol | MQTT 3.1.1 |
 | Port | 8883, TLS only (no plaintext listener needed) |
-| TLS | 1.2. Cipher suites: ECDHE-ECDSA or ECDHE-RSA with AES-GCM |
-| Broker cert | Must chain to the CA compiled into the firmware (`NPS_BROKER_CA_PEM`). With the broker reached by IP, the cert needs that IP as a `subjectAltName` iPAddress entry |
-| Cert dates | **Not checked** (the board has no clock). Trust comes from the pinned private CA |
+| TLS | Terminated on the ESP8266 (ESP-AT, mbedTLS 2.x). TLS 1.2; keep ECDHE + AES-GCM suites enabled on the broker |
+| Broker cert | Must chain to the CA in the ESP8266's `mqtt_ca` partition (`tools/esp8266/README.md`). The ESP matches `NPS_BROKER_HOST` against **dNSName** SANs only: with the broker reached by IP, include `DNS:<ip>` as well as `IP:<ip>` |
+| Cert dates | Not checked: the device keeps no wall clock. Trust comes from the private CA |
 | Device auth | Username + password. Username = device id |
 | Client id | Device id, e.g. `nps-0001` |
 | Keep-alive | 30 s. The broker declares the device dead after ~45 s of silence |
@@ -96,12 +99,15 @@ message is the only proof the relay actually moved.
 | Event | Relay outputs | What the server sees |
 |---|---|---|
 | Power-up / reset / watchdog | **All OFF** | `status` offline (LWT) → online → 4× `state {"on":false,"src":"boot"}` |
-| Broker or network lost | **Held** (unchanged) | `status` offline (LWT) |
+| Broker or Wi-Fi lost | **Held** (unchanged) | `status` offline (LWT) |
+| ESP8266 stops answering | **Held** | `status` offline (LWT); MCU resets the ESP and reconnects |
 | Reconnect | Held | `status` online → 4× `state` with current values |
-| Local button (B1) | Channel 1 toggles | `state {"on":…,"src":"button"}` (queued until online if offline) |
+| Local button (KEY, PA0) | Channel 1 toggles | `state {"on":…,"src":"button"}` (queued until online if offline) |
 
-Reconnect backoff: 2 s, doubling to 60 s max. It resets after a successful
-connect.
+Reconnect backoff (Wi-Fi join and MQTT connect): 2 s, doubling to 60 s max,
+reset after a successful connect. Connecting takes longer than on Ethernet:
+Wi-Fi association plus a TLS handshake on the ESP8266's 80 MHz core
+(budget `NPS_CONNECT_TIMEOUT_MS` = 30 s).
 
 ## Broker ACL (recommended)
 
@@ -118,9 +124,9 @@ user nps-server
 topic readwrite nps/#
 ```
 
-If the device's subscription is refused (SUBACK failure), it logs
-`subscribe refused: check broker ACL`, lights the red LED (LD3), drops the
-session and retries with backoff.
+If the device's subscription is refused, it logs
+`subscribe refused: check broker ACL` and retries the whole connect with
+backoff.
 
 ## Server implementation notes
 
@@ -134,7 +140,8 @@ session and retries with backoff.
   instead of publishing a command nobody will receive. (Clean-session QoS 1
   messages are not queued for an offline device.)
 - Per-device credentials: one broker user per device id, password provisioned
-  into that unit's `app/inc/conf_secrets.h` at build time.
+  into that unit's `app/inc/conf_secrets.h` at build time (sent to the ESP8266
+  with `AT+MQTTUSERCFG` at every connect; nothing is stored in ESP flash).
 
 ## Bench test
 

@@ -1,27 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  app/board/irq_table.xml — Network-Power-Switch IRQ table (NUCLEO-H723ZG).
-  Derived from FreeRTOS-OS/examples/stm32h723; I2C1/SPI1 kept because the OS
-  requires the BOARD_IIC/SPI_COUNT macros (SPI1 compiles out under CONFIG_NET), GPIOF clock
-  added for the relay pins.
-
-  Purpose
-  ───────
-  Provides the IRQ configuration for the H723 demo build and cppcheck analysis.
-  Mirrors the peripherals declared in stm32h723_devboard.xml.
-
-  Key H723 IRQ differences from F411
-  ────────────────────────────────────
-  • HAL timebase uses TIM6_DAC_IRQn (irqn=54) — TIM1_UP_TIM10_IRQn is F411 only.
-  • USART3 is at irqn=39 (F411 has no USART3 dedicated IRQ).
-  • BTN_USER is on PC13 → EXTI15_10_IRQn (irqn=40), not EXTI0.
-  • All ISR priorities must be ≥ configLIBRARY_MAX_SYSCALL_IRQ_PRIORITY (5).
-
-  Regenerate board headers:
-    make demo-gen-h723              (from FreeRTOS-OS/)
+  app/board/irq_table.xml — Network-Power-Switch IRQ table (STM32F401CDU6).
+  Derived from FreeRTOS-OS/examples/stm32f411 (F401 vector table is the
+  F411 one minus SPI5). GPIOC clock added for the PC13 LED; relay pins are
+  on GPIOB (enabled by app/src/relay.c as well).
 -->
 
-<irq_table board="demo_stm32h723">
+<irq_table board="nps_f401cdu6">
 
   <!-- ═══════════════════════════════════════════════════════════════════════
        Software IRQ capacity — drives irq_hw_conf.h generation
@@ -37,31 +22,29 @@
        UART peripherals
        ═══════════════════════════════════════════════════════════════════════ -->
 
-  <uart dev_id="0" label="UART_APP"   irqn="USART1_IRQn" priority="5" hal_inst="USART1"/>
-  <uart dev_id="1" label="UART_DEBUG" irqn="USART3_IRQn" priority="5" hal_inst="USART3"/>
-
+  <uart dev_id="0" label="UART_ESP"   irqn="USART1_IRQn" priority="5" hal_inst="USART1"/>
+  <uart dev_id="1" label="UART_DEBUG" irqn="USART2_IRQn" priority="5" hal_inst="USART2"/>
 
   <!-- ═══════════════════════════════════════════════════════════════════════
        I2C peripherals
        ═══════════════════════════════════════════════════════════════════════ -->
 
-  <i2c dev_id="0" label="I2C_SENSOR_BUS"
-       irqn_ev="I2C1_EV_IRQn" priority_ev="6"
-       irqn_er="I2C1_ER_IRQn" priority_er="6"
+  <i2c dev_id="0" label="I2C_SENSOR"
+       irqn_ev="I2C1_EV_IRQn" priority_ev="5"
+       irqn_er="I2C1_ER_IRQn" priority_er="5"
        hal_inst="I2C1"/>
 
   <!-- ═══════════════════════════════════════════════════════════════════════
        SPI peripherals
        ═══════════════════════════════════════════════════════════════════════ -->
 
-  <spi dev_id="0" label="SPI_FLASH_BUS" irqn="SPI1_IRQn" priority="6" hal_inst="SPI1"/>
+  <spi dev_id="0" label="SPI_FLASH" irqn="SPI1_IRQn" priority="5" hal_inst="SPI1"/>
 
   <!-- ═══════════════════════════════════════════════════════════════════════
        GPIO EXTI lines
        ═══════════════════════════════════════════════════════════════════════ -->
 
-  <!-- PC13 → EXTI line 13 → EXTI15_10_IRQn -->
-  <exti line="13" label="BTN_USER" irqn="EXTI15_10_IRQn" priority="6"/>
+  <exti line="0" label="BTN_USER" irqn="EXTI0_IRQn" priority="6"/>
 
   <!-- ═══════════════════════════════════════════════════════════════════════
        RCC peripheral clock enables
@@ -69,135 +52,85 @@
 
   <sys_clk inst="SYSCFG"/>
   <sys_clk inst="PWR"/>
-  <!-- H723 GPIO on AHB4 — gen_irq_table.py emits __HAL_RCC_GPIOx_CLK_ENABLE() -->
   <gpio_clk port="A"/>
   <gpio_clk port="B"/>
   <gpio_clk port="C"/>
-  <gpio_clk port="D"/>
-  <gpio_clk port="E"/>
-  <gpio_clk port="F"/>
 
   <!-- ═══════════════════════════════════════════════════════════════════════
        System / core IRQs
        ═══════════════════════════════════════════════════════════════════════ -->
 
-  <sys name="SysTick" irqn="SysTick_IRQn" priority="15" action="set_priority"/>
-  <sys name="PendSV"  irqn="PendSV_IRQn"  priority="15" action="set_priority"/>
-  <sys name="SVCall"  irqn="SVCall_IRQn"  priority="14" action="set_priority"/>
+  <sys name="SysTick"       irqn="SysTick_IRQn"       priority="15" action="set_priority"/>
+  <sys name="PendSV"        irqn="PendSV_IRQn"         priority="15" action="set_priority"/>
+  <sys name="SVCall"        irqn="SVCall_IRQn"          priority="14" action="set_priority"/>
 
-  <!--
-    HAL timebase on TIM6 (basic timer, irqn=54 on H723).
-    TIM6_DAC_IRQHandler is the shared ISR for TIM6 and DAC underrun.
-    FreeRTOS-OS routes it through the dispatch layer:
-      dispatch="hal_timebase_stm32_irq_handler()"
-  -->
-  <sys name="TIM6_DAC"  irqn="TIM6_DAC_IRQn" priority="1"  action="enable"
-       irq_id="TIM_TICK" flow="edge"
+  <sys name="TIM1_UP_TIM10" irqn="TIM1_UP_TIM10_IRQn" priority="1"  action="enable"
+       irq_id="TIM_TICK"    flow="edge"
        dispatch="hal_timebase_stm32_irq_handler()"
        dispatch_include="&lt;drivers/hal/stm32/hal_timebase_stm32.h&gt;"/>
 
-  <!--
-    Ethernet global IRQ (irqn=61). RX path for the lwIP stack: the ISR runs
-    HAL_ETH_IRQHandler, which fires HAL_ETH_RxCpltCallback to wake the net
-    thread. Priority 6 (>= configLIBRARY_MAX_SYSCALL_IRQ_PRIORITY) so the
-    handler may use FreeRTOS *FromISR APIs. Guarded so non-CONFIG_NET builds
-    still link (empty stub when the ETH driver is compiled out).
-  -->
-  <sys name="Ethernet" irqn="ETH_IRQn" priority="6" action="enable"
-       guard="HAL_ETH_MODULE_ENABLED"
-       dispatch="hal_eth_stm32_irq_handler()"
-       dispatch_include="&lt;drivers/hal/stm32/hal_eth_stm32.h&gt;"/>
-
   <!-- ═══════════════════════════════════════════════════════════════════════
-       STM32H723 peripheral vector table  (RM0468 Table 122)
-       Only vectors that have dedicated handlers are listed; remaining
-       positions resolve to Default_Handler via the weak alias mechanism.
+       STM32F411 peripheral vector table
        ═══════════════════════════════════════════════════════════════════════ -->
 
-  <vector_table device="STM32H723">
-    <entry irqn="0"   handler="WWDG_IRQHandler"               comment="Window Watchdog"/>
-    <entry irqn="1"   handler="PVD_AVD_IRQHandler"            comment="PVD/AVD through EXTI"/>
-    <entry irqn="2"   handler="RTC_TAMP_STAMP_CSS_LSE_IRQHandler" comment="RTC Tamper/Timestamp/CSS"/>
-    <entry irqn="3"   handler="RTC_WKUP_IRQHandler"           comment="RTC Wakeup"/>
-    <entry irqn="4"   handler="FLASH_IRQHandler"              comment="Flash global"/>
-    <entry irqn="5"   handler="RCC_IRQHandler"                comment="RCC global"/>
-    <entry irqn="6"   handler="EXTI0_IRQHandler"              comment="EXTI Line 0"/>
-    <entry irqn="7"   handler="EXTI1_IRQHandler"              comment="EXTI Line 1"/>
-    <entry irqn="8"   handler="EXTI2_IRQHandler"              comment="EXTI Line 2"/>
-    <entry irqn="9"   handler="EXTI3_IRQHandler"              comment="EXTI Line 3"/>
-    <entry irqn="10"  handler="EXTI4_IRQHandler"              comment="EXTI Line 4"/>
-    <entry irqn="11"  handler="DMA1_Stream0_IRQHandler"       comment="DMA1 Stream 0"/>
-    <entry irqn="12"  handler="DMA1_Stream1_IRQHandler"       comment="DMA1 Stream 1"/>
-    <entry irqn="13"  handler="DMA1_Stream2_IRQHandler"       comment="DMA1 Stream 2"/>
-    <entry irqn="14"  handler="DMA1_Stream3_IRQHandler"       comment="DMA1 Stream 3"/>
-    <entry irqn="15"  handler="DMA1_Stream4_IRQHandler"       comment="DMA1 Stream 4"/>
-    <entry irqn="16"  handler="DMA1_Stream5_IRQHandler"       comment="DMA1 Stream 5"/>
-    <entry irqn="17"  handler="DMA1_Stream6_IRQHandler"       comment="DMA1 Stream 6"/>
-    <entry irqn="18"  handler="ADC_IRQHandler"                comment="ADC1/ADC2 global"/>
-    <entry irqn="19"  handler="FDCAN1_IT0_IRQHandler"         comment="FDCAN1 interrupt 0"/>
-    <entry irqn="20"  handler="FDCAN2_IT0_IRQHandler"         comment="FDCAN2 interrupt 0"/>
-    <entry irqn="21"  handler="FDCAN1_IT1_IRQHandler"         comment="FDCAN1 interrupt 1"/>
-    <entry irqn="22"  handler="FDCAN2_IT1_IRQHandler"         comment="FDCAN2 interrupt 1"/>
-    <entry irqn="23"  handler="EXTI9_5_IRQHandler"            comment="EXTI Lines 5-9"/>
-    <entry irqn="24"  handler="TIM1_BRK_IRQHandler"           comment="TIM1 Break"/>
-    <entry irqn="25"  handler="TIM1_UP_IRQHandler"            comment="TIM1 Update"/>
-    <entry irqn="26"  handler="TIM1_TRG_COM_IRQHandler"       comment="TIM1 Trigger/Comm"/>
-    <entry irqn="27"  handler="TIM1_CC_IRQHandler"            comment="TIM1 Capture Compare"/>
-    <entry irqn="28"  handler="TIM2_IRQHandler"               comment="TIM2"/>
-    <entry irqn="29"  handler="TIM3_IRQHandler"               comment="TIM3"/>
-    <entry irqn="30"  handler="TIM4_IRQHandler"               comment="TIM4"/>
-    <entry irqn="31"  handler="I2C1_EV_IRQHandler"            comment="I2C1 Event"/>
-    <entry irqn="32"  handler="I2C1_ER_IRQHandler"            comment="I2C1 Error"/>
-    <entry irqn="33"  handler="I2C2_EV_IRQHandler"            comment="I2C2 Event"/>
-    <entry irqn="34"  handler="I2C2_ER_IRQHandler"            comment="I2C2 Error"/>
-    <entry irqn="35"  handler="SPI1_IRQHandler"               comment="SPI1"/>
-    <entry irqn="36"  handler="SPI2_IRQHandler"               comment="SPI2"/>
-    <entry irqn="37"  handler="USART1_IRQHandler"             comment="USART1"/>
-    <entry irqn="38"  handler="USART2_IRQHandler"             comment="USART2"/>
-    <entry irqn="39"  handler="USART3_IRQHandler"             comment="USART3"/>
-    <entry irqn="40"  handler="EXTI15_10_IRQHandler"          comment="EXTI Lines 10-15 (BTN_USER PC13)"/>
-    <entry irqn="41"  handler="RTC_Alarm_IRQHandler"          comment="RTC Alarm A and B"/>
-    <entry irqn="43"  handler="TIM8_BRK_TIM12_IRQHandler"     comment="TIM8 Break / TIM12"/>
-    <entry irqn="44"  handler="TIM8_UP_TIM13_IRQHandler"      comment="TIM8 Update / TIM13"/>
-    <entry irqn="45"  handler="TIM8_TRG_COM_TIM14_IRQHandler" comment="TIM8 Trig/Comm / TIM14"/>
-    <entry irqn="46"  handler="TIM8_CC_IRQHandler"            comment="TIM8 Capture Compare"/>
-    <entry irqn="47"  handler="DMA1_Stream7_IRQHandler"       comment="DMA1 Stream 7"/>
-    <entry irqn="49"  handler="SDMMC1_IRQHandler"             comment="SDMMC1"/>
-    <entry irqn="50"  handler="TIM5_IRQHandler"               comment="TIM5"/>
-    <entry irqn="51"  handler="SPI3_IRQHandler"               comment="SPI3"/>
-    <entry irqn="52"  handler="UART4_IRQHandler"              comment="UART4"/>
-    <entry irqn="53"  handler="UART5_IRQHandler"              comment="UART5"/>
-    <entry irqn="54"  handler="TIM6_DAC_IRQHandler"           comment="TIM6 / DAC underrun (HAL timebase)"/>
-    <entry irqn="55"  handler="TIM7_IRQHandler"               comment="TIM7"/>
-    <entry irqn="56"  handler="DMA2_Stream0_IRQHandler"       comment="DMA2 Stream 0"/>
-    <entry irqn="57"  handler="DMA2_Stream1_IRQHandler"       comment="DMA2 Stream 1"/>
-    <entry irqn="58"  handler="DMA2_Stream2_IRQHandler"       comment="DMA2 Stream 2"/>
-    <entry irqn="59"  handler="DMA2_Stream3_IRQHandler"       comment="DMA2 Stream 3"/>
-    <entry irqn="60"  handler="DMA2_Stream4_IRQHandler"       comment="DMA2 Stream 4"/>
-    <entry irqn="61"  handler="ETH_IRQHandler"                comment="Ethernet global"/>
-    <entry irqn="62"  handler="ETH_WKUP_IRQHandler"           comment="Ethernet wakeup"/>
-    <entry irqn="68"  handler="DMA2_Stream5_IRQHandler"       comment="DMA2 Stream 5"/>
-    <entry irqn="69"  handler="DMA2_Stream6_IRQHandler"       comment="DMA2 Stream 6"/>
-    <entry irqn="70"  handler="DMA2_Stream7_IRQHandler"       comment="DMA2 Stream 7"/>
-    <entry irqn="71"  handler="USART6_IRQHandler"             comment="USART6"/>
-    <entry irqn="72"  handler="I2C3_EV_IRQHandler"            comment="I2C3 Event"/>
-    <entry irqn="73"  handler="I2C3_ER_IRQHandler"            comment="I2C3 Error"/>
-    <entry irqn="81"  handler="FPU_IRQHandler"                comment="FPU (Cortex-M7)"/>
-    <entry irqn="82"  handler="UART7_IRQHandler"              comment="UART7"/>
-    <entry irqn="83"  handler="UART8_IRQHandler"              comment="UART8"/>
-    <entry irqn="84"  handler="SPI4_IRQHandler"               comment="SPI4"/>
-    <entry irqn="85"  handler="SPI5_IRQHandler"               comment="SPI5"/>
-    <entry irqn="86"  handler="SPI6_IRQHandler"               comment="SPI6"/>
-    <entry irqn="93"  handler="LPTIM1_IRQHandler"             comment="LPTIM1"/>
-    <entry irqn="95"  handler="I2C4_EV_IRQHandler"            comment="I2C4 Event"/>
-    <entry irqn="96"  handler="I2C4_ER_IRQHandler"            comment="I2C4 Error"/>
-    <entry irqn="116" handler="TIM15_IRQHandler"              comment="TIM15"/>
-    <entry irqn="117" handler="TIM16_IRQHandler"              comment="TIM16"/>
-    <entry irqn="118" handler="TIM17_IRQHandler"              comment="TIM17"/>
-    <entry irqn="122" handler="MDMA_IRQHandler"               comment="MDMA"/>
-    <entry irqn="138" handler="LPTIM2_IRQHandler"             comment="LPTIM2"/>
-    <entry irqn="139" handler="LPTIM3_IRQHandler"             comment="LPTIM3"/>
-    <entry irqn="151" handler="FMAC_IRQHandler"               comment="FMAC"/>
+  <vector_table device="STM32F411">
+    <entry irqn="0"  handler="WWDG_IRQHandler"                comment="Window Watchdog"/>
+    <entry irqn="1"  handler="PVD_IRQHandler"                 comment="PVD through EXTI line"/>
+    <entry irqn="2"  handler="TAMP_STAMP_IRQHandler"          comment="Tamper and TimeStamp"/>
+    <entry irqn="3"  handler="RTC_WKUP_IRQHandler"            comment="RTC Wakeup"/>
+    <entry irqn="4"  handler="FLASH_IRQHandler"               comment="Flash global"/>
+    <entry irqn="5"  handler="RCC_IRQHandler"                 comment="RCC global"/>
+    <entry irqn="6"  handler="EXTI0_IRQHandler"               comment="EXTI Line 0"/>
+    <entry irqn="7"  handler="EXTI1_IRQHandler"               comment="EXTI Line 1"/>
+    <entry irqn="8"  handler="EXTI2_IRQHandler"               comment="EXTI Line 2"/>
+    <entry irqn="9"  handler="EXTI3_IRQHandler"               comment="EXTI Line 3"/>
+    <entry irqn="10" handler="EXTI4_IRQHandler"               comment="EXTI Line 4"/>
+    <entry irqn="11" handler="DMA1_Stream0_IRQHandler"        comment="DMA1 Stream 0"/>
+    <entry irqn="12" handler="DMA1_Stream1_IRQHandler"        comment="DMA1 Stream 1"/>
+    <entry irqn="13" handler="DMA1_Stream2_IRQHandler"        comment="DMA1 Stream 2"/>
+    <entry irqn="14" handler="DMA1_Stream3_IRQHandler"        comment="DMA1 Stream 3"/>
+    <entry irqn="15" handler="DMA1_Stream4_IRQHandler"        comment="DMA1 Stream 4"/>
+    <entry irqn="16" handler="DMA1_Stream5_IRQHandler"        comment="DMA1 Stream 5"/>
+    <entry irqn="17" handler="DMA1_Stream6_IRQHandler"        comment="DMA1 Stream 6"/>
+    <entry irqn="18" handler="ADC_IRQHandler"                 comment="ADC1 ADC2 ADC3"/>
+    <entry irqn="23" handler="EXTI9_5_IRQHandler"             comment="EXTI Lines 5-9"/>
+    <entry irqn="24" handler="TIM1_BRK_TIM9_IRQHandler"       comment="TIM1 Break and TIM9"/>
+    <entry irqn="25" handler="TIM1_UP_TIM10_IRQHandler"       comment="TIM1 Update and TIM10"/>
+    <entry irqn="26" handler="TIM1_TRG_COM_TIM11_IRQHandler"  comment="TIM1 Trigger/Comm and TIM11"/>
+    <entry irqn="27" handler="TIM1_CC_IRQHandler"             comment="TIM1 Capture Compare"/>
+    <entry irqn="28" handler="TIM2_IRQHandler"                comment="TIM2"/>
+    <entry irqn="29" handler="TIM3_IRQHandler"                comment="TIM3"/>
+    <entry irqn="30" handler="TIM4_IRQHandler"                comment="TIM4"/>
+    <entry irqn="31" handler="I2C1_EV_IRQHandler"             comment="I2C1 Event"/>
+    <entry irqn="32" handler="I2C1_ER_IRQHandler"             comment="I2C1 Error"/>
+    <entry irqn="33" handler="I2C2_EV_IRQHandler"             comment="I2C2 Event"/>
+    <entry irqn="34" handler="I2C2_ER_IRQHandler"             comment="I2C2 Error"/>
+    <entry irqn="35" handler="SPI1_IRQHandler"                comment="SPI1"/>
+    <entry irqn="36" handler="SPI2_IRQHandler"                comment="SPI2"/>
+    <entry irqn="37" handler="USART1_IRQHandler"              comment="USART1"/>
+    <entry irqn="38" handler="USART2_IRQHandler"              comment="USART2"/>
+    <entry irqn="40" handler="EXTI15_10_IRQHandler"           comment="EXTI Lines 10-15"/>
+    <entry irqn="41" handler="RTC_Alarm_IRQHandler"           comment="RTC Alarm A and B"/>
+    <entry irqn="42" handler="OTG_FS_WKUP_IRQHandler"         comment="USB OTG FS Wakeup"/>
+    <entry irqn="47" handler="DMA1_Stream7_IRQHandler"        comment="DMA1 Stream 7"/>
+    <entry irqn="49" handler="SDIO_IRQHandler"                comment="SDIO"/>
+    <entry irqn="50" handler="TIM5_IRQHandler"                comment="TIM5"/>
+    <entry irqn="51" handler="SPI3_IRQHandler"                comment="SPI3"/>
+    <entry irqn="56" handler="DMA2_Stream0_IRQHandler"        comment="DMA2 Stream 0"/>
+    <entry irqn="57" handler="DMA2_Stream1_IRQHandler"        comment="DMA2 Stream 1"/>
+    <entry irqn="58" handler="DMA2_Stream2_IRQHandler"        comment="DMA2 Stream 2"/>
+    <entry irqn="59" handler="DMA2_Stream3_IRQHandler"        comment="DMA2 Stream 3"/>
+    <entry irqn="60" handler="DMA2_Stream4_IRQHandler"        comment="DMA2 Stream 4"/>
+    <entry irqn="67" handler="OTG_FS_IRQHandler"              comment="USB OTG FS"/>
+    <entry irqn="68" handler="DMA2_Stream5_IRQHandler"        comment="DMA2 Stream 5"/>
+    <entry irqn="69" handler="DMA2_Stream6_IRQHandler"        comment="DMA2 Stream 6"/>
+    <entry irqn="70" handler="DMA2_Stream7_IRQHandler"        comment="DMA2 Stream 7"/>
+    <entry irqn="71" handler="USART6_IRQHandler"              comment="USART6"/>
+    <entry irqn="72" handler="I2C3_EV_IRQHandler"             comment="I2C3 Event"/>
+    <entry irqn="73" handler="I2C3_ER_IRQHandler"             comment="I2C3 Error"/>
+    <entry irqn="81" handler="FPU_IRQHandler"                 comment="FPU"/>
+    <entry irqn="84" handler="SPI4_IRQHandler"                comment="SPI4"/>
+    <entry irqn="85" handler="SPI5_IRQHandler"                comment="SPI5"/>
   </vector_table>
 
 </irq_table>

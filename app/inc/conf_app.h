@@ -1,11 +1,13 @@
 /**
  * @file        conf_app.h
  * @brief       Network-Power-Switch compile-time configuration
+ *              (STM32F401CDU6 + ESP8266 running ESP-AT)
  *
  * @info        Everything that differs between units or deployments lives
- *              here or in conf_secrets.h (gitignored: MQTT credentials and
- *              the broker CA). Network identity (IP / MAC) is in
- *              board/lwipopts.h next to the rest of the lwIP options.
+ *              here or in conf_secrets.h (gitignored: Wi-Fi and MQTT
+ *              credentials). The broker CA is NOT compiled into the MCU: TLS
+ *              terminates in the ESP8266, which verifies the broker against
+ *              the CA flashed into its mqtt_ca partition (tools/esp8266/).
  *
  *              The MQTT contract built from these values is specified in
  *              docs/mqtt_api.md — change both together.
@@ -22,35 +24,52 @@
 #define NPS_DEVICE_ID               "nps-0001"
 
 /** Firmware version reported in the online status message. */
-#define NPS_FW_VERSION              "1.0.0"
+#define NPS_FW_VERSION              "2.0.0"
+
+/* ── Wi-Fi (station) ────────────────────────────────────────────────────── */
+
+/**
+ * Static IPv4 for the ESP8266 station. Comment out NPS_WIFI_STATIC_IP to use
+ * DHCP from the access point instead.
+ */
+#define NPS_WIFI_STATIC_IP          "192.168.0.51"
+#define NPS_WIFI_GATEWAY            "192.168.0.1"
+#define NPS_WIFI_NETMASK            "255.255.255.0"
+
+/** Give up on one AT+CWJAP attempt after this long. */
+#define NPS_WIFI_JOIN_TIMEOUT_MS    20000U
 
 /* ── Broker ─────────────────────────────────────────────────────────────── */
 
-/** Broker IPv4 address (no DNS on this build). */
-#define NPS_BROKER_IP0              192
-#define NPS_BROKER_IP1              168
-#define NPS_BROKER_IP2              0
-#define NPS_BROKER_IP3              100
-
 /**
- * Name the broker certificate is verified against. With an IP-addressed
- * broker this is the IP as text, and the server certificate must carry it as
- * an iPAddress subjectAltName. mbedTLS refuses to verify without it.
+ * Broker address as the ESP connects to it: an IP or, if the network has
+ * DNS, a hostname. With an IP, the ESP8266's mbedTLS 2.x compares this
+ * string against the certificate's dNSName SANs (it does not understand
+ * iPAddress SANs), so the broker cert needs DNS:<this IP> as well.
  */
 #define NPS_BROKER_HOST             "192.168.0.100"
-
 #define NPS_BROKER_PORT             8883
 
-/** MQTT keep-alive. The broker drops the session (and fires the LWT) after
- *  1.5x this without traffic, which is how the app learns we went offline. */
+/**
+ * ESP-AT AT+MQTTUSERCFG scheme:
+ *   1 = MQTT over TCP (plaintext — bench only)
+ *   2 = MQTT over TLS, no certificate verification (do not ship)
+ *   3 = MQTT over TLS, verify the broker against the ESP's mqtt_ca  ← default
+ */
+#define NPS_MQTT_SCHEME             3
+
+/** MQTT keep-alive. The broker fires the LWT after ~1.5x this of silence. */
 #define NPS_MQTT_KEEPALIVE_S        30
 
 /** Reconnect backoff: doubles from MIN up to MAX after each failed attempt. */
 #define NPS_RECONNECT_MIN_MS        2000U
 #define NPS_RECONNECT_MAX_MS        60000U
 
-/** Give up on a connect attempt (TCP + TLS + CONNACK) after this long. */
-#define NPS_CONNECT_TIMEOUT_MS      20000U
+/** AT+MQTTCONN (TCP + TLS handshake on the ESP8266 + CONNACK) budget. */
+#define NPS_CONNECT_TIMEOUT_MS      30000U
+
+/** Consecutive AT timeouts before the ESP8266 is hardware-reset. */
+#define NPS_ESP_MAX_TIMEOUTS        3U
 
 /* ── Topics ─────────────────────────────────────────────────────────────── */
 
@@ -69,10 +88,10 @@
 #define NPS_RELAY_COUNT             4
 
 /**
- * Relay inputs on the Arduino header of the NUCLEO-H723ZG (all 5 V tolerant).
+ * Relay inputs, all 5 V tolerant (FT) on STM32F401CDU6:
  *
- *   CH1  D2  PF15      CH3  D4  PF14
- *   CH2  D3  PE13      CH4  D5  PE11
+ *   CH1  PB12      CH3  PB14
+ *   CH2  PB13      CH4  PB15
  *
  * Driven open-drain, active-LOW: LOW sinks the module's opto LED (relay ON),
  * released = the module's own pull-up to its VCC (relay OFF). Open-drain is
@@ -81,45 +100,49 @@
  */
 #define NPS_RELAY_PINS                    \
     {                                     \
-        { GPIOF, GPIO_PIN_15 },           \
-        { GPIOE, GPIO_PIN_13 },           \
-        { GPIOF, GPIO_PIN_14 },           \
-        { GPIOE, GPIO_PIN_11 },           \
+        { GPIOB, GPIO_PIN_12 },           \
+        { GPIOB, GPIO_PIN_13 },           \
+        { GPIOB, GPIO_PIN_14 },           \
+        { GPIOB, GPIO_PIN_15 },           \
     }
 
-/** Channel (1-based) toggled by the B1 user button. */
-#define NPS_BUTTON_CHANNEL          1
-#define NPS_BUTTON_DEBOUNCE_MS      50U
-
-/* ── Network bring-up guard ─────────────────────────────────────────────── */
+/* ── ESP8266 ────────────────────────────────────────────────────────────── */
 
 /**
- * FreeRTOS-OS only brings the Ethernet up if the PHY links at boot. When it
- * does not (cable unplugged), the board reboots after this long to try again
- * — but only while every relay is OFF, so a load switched on with the button
- * is never dropped by the retry.
+ * ESP8266 RST input (active LOW). Driven open-drain with the internal
+ * pull-up: released = running. If RST is not wired, the hardware reset
+ * simply times out and the firmware falls back to AT+RST.
+ * UART: USART1, PA9 (MCU TX → ESP RX) / PA10 (MCU RX ← ESP TX), 115200 8N1,
+ * declared as UART_ESP in board/nps_f401.xml.
  */
-#define NPS_NET_RETRY_REBOOT_MS     30000U
+#define NPS_ESP_RST_PORT            GPIOB
+#define NPS_ESP_RST_PIN             GPIO_PIN_0
+#define NPS_ESP_RST_CLK_ENABLE()    __HAL_RCC_GPIOB_CLK_ENABLE()
+
+/** MCU RX pin from the ESP's TX: read to tell "ESP silent" from "ESP off". */
+#define NPS_ESP_RX_PORT             GPIOA
+#define NPS_ESP_RX_PIN              GPIO_PIN_10
+
+/* ── Local I/O ──────────────────────────────────────────────────────────── */
+
+/** Channel (1-based) toggled by the KEY button (PA0, active-LOW). */
+#define NPS_BUTTON_CHANNEL          1
+#define NPS_BUTTON_DEBOUNCE_MS      50U
+#define NPS_BUTTON_PRESSED_LEVEL    0U
+
+/** PC13 on-board LED is active-LOW (the OS gpio path ignores active_state). */
+#define NPS_LED_ACTIVE_LOW          1
 
 /* ── Tasks (stack in words) ─────────────────────────────────────────────── */
 
-#define NPS_MQTT_TASK_STACK         1024
+#define NPS_MQTT_TASK_STACK         768
 #define NPS_MQTT_TASK_PRIO          5
-#define NPS_BUTTON_TASK_STACK       384
+#define NPS_BUTTON_TASK_STACK       256
 #define NPS_BUTTON_TASK_PRIO        3
-#define NPS_NET_GUARD_STACK         256
-#define NPS_NET_GUARD_PRIO          2
 
 /* ── Software watchdog slots (safety/wdog.h) ────────────────────────────── */
 
 #define NPS_WDOG_SLOT_MQTT          3U
 #define NPS_WDOG_SLOT_BUTTON        4U
-
-/**
- * If the tcpip thread has not run a probe callback for this long, the MQTT
- * task stops kicking its slot and the IWDG resets the board (relays OFF).
- * A TLS handshake runs inside tcpip, so this must exceed the slowest one.
- */
-#define NPS_TCPIP_STALL_MS          8000U
 
 #endif /* APP_CONF_APP_H_ */

@@ -1,6 +1,6 @@
 /**
  * @file        button.h
- * @brief       B1 user button: local toggle of one relay channel
+ * @brief       KEY user button (PA0): local toggle of one relay channel
  */
 
 #ifndef APP_BUTTON_H_

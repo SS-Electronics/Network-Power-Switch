@@ -19,7 +19,7 @@ typedef enum
 {
     RELAY_SRC_BOOT = 0,     /**< power-up default (always OFF)             */
     RELAY_SRC_APP,          /**< MQTT set command                          */
-    RELAY_SRC_BUTTON,       /**< local B1 button                           */
+    RELAY_SRC_BUTTON,       /**< local KEY button                          */
 } relay_src_t;
 
 /** Called from the context that changed the relay, after the pin moved. */

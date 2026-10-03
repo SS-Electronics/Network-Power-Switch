@@ -12,8 +12,6 @@
 #include <device.h>
 #include <os/kernel.h>
 #include <os/kernel_syscall.h>
-#include <services/gpio_mgmt.h>
-#include <board/board_device_ids.h>
 
 #include "conf_app.h"
 #include "relay.h"
@@ -32,13 +30,17 @@ static os_mutex_t       s_lock;
 
 static void relay_clk_enable(GPIO_TypeDef *port)
 {
-    if (port == GPIOE)
+    if (port == GPIOA)
     {
-        __HAL_RCC_GPIOE_CLK_ENABLE();
+        __HAL_RCC_GPIOA_CLK_ENABLE();
     }
-    else if (port == GPIOF)
+    else if (port == GPIOB)
     {
-        __HAL_RCC_GPIOF_CLK_ENABLE();
+        __HAL_RCC_GPIOB_CLK_ENABLE();
+    }
+    else if (port == GPIOC)
+    {
+        __HAL_RCC_GPIOC_CLK_ENABLE();
     }
 }
 
@@ -91,11 +93,6 @@ bool relay_set(uint8_t channel, bool on, relay_src_t src)
     relay_drive(idx, on);
     s_state[idx] = on;
     (void)os_mutex_unlock(s_lock);
-
-    if (channel == 1U)
-    {
-        gpio_mgmt_post(LED_RELAY, on ? GPIO_MGMT_CMD_SET : GPIO_MGMT_CMD_CLEAR, 0, 0);
-    }
 
     printk("[relay] ch%u %s (%s)\n", (unsigned)channel, on ? "ON" : "OFF",
            relay_src_name(src));

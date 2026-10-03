@@ -72,5 +72,5 @@ app/board/irq_periph_dispatch_generated.c
 app/board/irq_periph_handlers_generated.h
 app/board/irq_periph_vectors_generated.inc
 app/board/irq_table_generated.c
-app/board/stm32h7xx_hal_conf.h
+app/board/stm32f4xx_hal_conf.h
 build-host/
