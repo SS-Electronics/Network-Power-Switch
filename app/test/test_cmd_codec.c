@@ -96,10 +96,25 @@ static void test_format(void)
     CHECK(cmd_codec_format_state(buf, sizeof(buf), true, "button") > 0);
     CHECK(strcmp(buf, "{\"on\":true,\"src\":\"button\"}") == 0);
 
-    CHECK(cmd_codec_format_online(buf, sizeof(buf), "1.0.0", 4) > 0);
-    CHECK(strcmp(buf, "{\"online\":true,\"fw\":\"1.0.0\",\"relays\":4}") == 0);
+    /* Status and will are a PAIR: both carry the session id of the connection
+     * that produced them, so the server can discard a will belonging to a
+     * session that has already been replaced. */
+    CHECK(cmd_codec_format_online(buf, sizeof(buf), "2.0.0", 4, 0x0a1b2c3dUL) > 0);
+    CHECK(strcmp(buf,
+                 "{\"online\":true,\"fw\":\"2.0.0\",\"relays\":4,\"ses\":\"0a1b2c3d\"}") == 0);
 
+    CHECK(cmd_codec_format_offline(buf, sizeof(buf), 0x0a1b2c3dUL) > 0);
+    CHECK(strcmp(buf, "{\"online\":false,\"ses\":\"0a1b2c3d\"}") == 0);
+
+    /* Session is zero-padded to 8 hex digits so the server can compare it as a
+     * plain string without worrying about leading zeros. */
+    CHECK(cmd_codec_format_offline(buf, sizeof(buf), 0x1UL) > 0);
+    CHECK(strcmp(buf, "{\"online\":false,\"ses\":\"00000001\"}") == 0);
+
+    /* Truncation is reported, never silently emitted. */
     CHECK(cmd_codec_format_state(buf, 8, true, "app") == -1);
+    CHECK(cmd_codec_format_online(buf, 8, "2.0.0", 4, 1UL) == -1);
+    CHECK(cmd_codec_format_offline(buf, 8, 1UL) == -1);
 }
 
 int main(void)

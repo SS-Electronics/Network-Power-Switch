@@ -97,7 +97,34 @@ static char s_ssid_esc[2 * sizeof(NPS_WIFI_SSID)];
 static char s_wpass_esc[2 * sizeof(NPS_WIFI_PASS)];
 static char s_user_esc[2 * sizeof(NPS_MQTT_USER)];
 static char s_mpass_esc[2 * sizeof(NPS_MQTT_PASS)];
-static char s_lwt_esc[2 * sizeof(NPS_STATUS_OFFLINE_MSG)];
+/*
+ * Session id for the status/will pair. Regenerated on every connect attempt so
+ * a will registered by an earlier session can be told apart from the session
+ * that is actually online — see cmd_codec_format_online().
+ *
+ * It only has to DIFFER from the previous value, not be unguessable, so a
+ * cheap xorshift seeded from the uptime at first use is enough; the counter
+ * mixed in guarantees two consecutive sessions never collide even if the
+ * timer has not advanced.
+ */
+static uint32_t s_session;
+static char     s_lwt_esc[96];
+
+static uint32_t next_session(void)
+{
+    static uint32_t seed;
+    static uint32_t count;
+
+    if (seed == 0U)
+    {
+        seed = os_uptime_ms() | 1U;
+    }
+    seed ^= seed << 13;
+    seed ^= seed >> 17;
+    seed ^= seed << 5;
+    count++;
+    return seed ^ (count * 2654435761UL);
+}
 
 /* ── LED + watchdog (idle hook: runs every ~100 ms, also inside AT waits) ── */
 
@@ -330,8 +357,8 @@ static bool step_wifi_join(void)
 
 static bool step_mqtt_connect(void)
 {
-    char msg[64];
-    char esc[96];
+    char msg[96];
+    char esc[160];
 
     /* NonOS AT 1.x has no MQTT commands: sending them only times out and
      * would reset the ESP in a loop. Keep Wi-Fi up and retry on backoff. */
@@ -346,6 +373,21 @@ static bool step_mqtt_connect(void)
 
     /* Drop whatever the ESP still holds from a previous session. */
     (void)esp_at_cmd(CMD_TIMEOUT_MS, "AT+MQTTCLEAN=0");
+
+    /* New session id, and a will that carries it. The will is registered with
+     * the broker below and may not be published for another ~45 s, long after
+     * this session has been replaced — the id is what lets the server tell
+     * those apart. */
+    s_session = next_session();
+    {
+        char off[64];
+
+        if ((cmd_codec_format_offline(off, sizeof(off), s_session) < 0) ||
+            (at_escape(s_lwt_esc, sizeof(s_lwt_esc), off) < 0))
+        {
+            return false;
+        }
+    }
 
     if (track(esp_at_cmd(CMD_TIMEOUT_MS, "AT+MQTTUSERCFG=0,%d,\"%s\",\"%s\",\"%s\",0,0,\"\"",
                          NPS_MQTT_SCHEME, NPS_DEVICE_ID, s_user_esc, s_mpass_esc)) != ESP_AT_OK)
@@ -380,7 +422,8 @@ static bool step_mqtt_connect(void)
         return false;
     }
 
-    int n = cmd_codec_format_online(msg, sizeof(msg), NPS_FW_VERSION, NPS_RELAY_COUNT);
+    int n = cmd_codec_format_online(msg, sizeof(msg), NPS_FW_VERSION, NPS_RELAY_COUNT,
+                                   s_session);
     if ((n < 0) || (at_escape(esc, sizeof(esc), msg) < 0) ||
         (track(esp_at_cmd(PUB_TIMEOUT_MS, "AT+MQTTPUB=0,\"%s\",\"%s\",1,1",
                           NPS_TOPIC_STATUS, esc)) != ESP_AT_OK))
@@ -550,7 +593,6 @@ int32_t mqtt_link_start(void)
     (void)at_escape(s_wpass_esc, sizeof(s_wpass_esc), NPS_WIFI_PASS);
     (void)at_escape(s_user_esc,  sizeof(s_user_esc),  NPS_MQTT_USER);
     (void)at_escape(s_mpass_esc, sizeof(s_mpass_esc), NPS_MQTT_PASS);
-    (void)at_escape(s_lwt_esc,   sizeof(s_lwt_esc),   NPS_STATUS_OFFLINE_MSG);
 
     for (uint8_t ch = 0; ch <= NPS_RELAY_COUNT; ch++)
     {

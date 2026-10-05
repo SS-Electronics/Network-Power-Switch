@@ -24,7 +24,7 @@
 #define NPS_DEVICE_ID               "nps-0001"
 
 /** Firmware version reported in the online status message. */
-#define NPS_FW_VERSION              "2.0.0"
+#define NPS_FW_VERSION              "2.1.0"
 
 /* ── Wi-Fi (station) ────────────────────────────────────────────────────── */
 
@@ -81,7 +81,8 @@
 #define NPS_TOPIC_PREFIX            NPS_TOPIC_ROOT "/" NPS_DEVICE_ID
 #define NPS_TOPIC_SET_FILTER        NPS_TOPIC_PREFIX "/relay/+/set"
 #define NPS_TOPIC_STATUS            NPS_TOPIC_PREFIX "/status"
-#define NPS_STATUS_OFFLINE_MSG      "{\"online\":false}"
+/* The offline (will) payload is built per connect by cmd_codec_format_offline()
+ * so it can carry that session's id; there is no fixed string any more. */
 
 /* ── Relays ─────────────────────────────────────────────────────────────── */
 

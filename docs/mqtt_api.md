@@ -1,7 +1,7 @@
 # Network-Power-Switch — MQTT API (device ⇄ server)
 
 This is the contract between the relay board firmware and the backend that
-the Android app talks to. Firmware version **2.0.0** (STM32F401CDU6 + ESP8266).
+the Android app talks to. Firmware version **2.1.0** (STM32F401CDU6 + ESP8266).
 Source of truth for the firmware side: `app/inc/conf_app.h`,
 `app/src/cmd_codec.c`, `app/src/mqtt_link.c`.
 
@@ -43,7 +43,7 @@ server holds the broker credentials.
 |---|---|---|---|---|
 | `nps/<id>/relay/<n>/set` | server → device | 1 | **must be false** | `{"on":true}` / `{"on":false}` |
 | `nps/<id>/relay/<n>/state` | device → server | 1 | true | `{"on":true,"src":"app"}` |
-| `nps/<id>/status` | device → server | 1 | true | `{"online":true,"fw":"1.0.0","relays":4}`, or LWT `{"online":false}` |
+| `nps/<id>/status` | device → server | 1 | true | `{"online":true,"fw":"2.1.0","relays":4,"ses":"0a1b2c3d"}`, or LWT `{"online":false,"ses":"0a1b2c3d"}` |
 
 ### `relay/<n>/set`: command
 
@@ -87,8 +87,29 @@ message is the only proof the relay actually moved.
 
 ### `status`: online/offline
 
-- On connect: retained `{"online":true,"fw":"1.0.0","relays":4}`.
-- Last Will (set at CONNECT): retained `{"online":false}`. The broker
+- On connect: retained `{"online":true,"fw":"2.1.0","relays":4,"ses":"<id>"}`.
+- Last Will (set at CONNECT): retained `{"online":false,"ses":"<id>"}`.
+
+### `ses`: which connection this is about  *(new in 2.1.0)*
+
+Both status payloads carry the **session id** of the connection that produced
+them, as 8 lowercase hex digits. It is regenerated on every connect and only
+has to differ from the previous one — it is not a secret and not a counter.
+
+**The server MUST ignore an `{"online":false}` whose `ses` is not the session
+that is currently online.**
+
+Why this exists: the will is registered with the broker at CONNECT and
+published whenever the broker decides that session died. If Wi-Fi disappears
+without a TCP FIN — the normal case for a device losing its access point — the
+broker only notices at keep-alive timeout (~45 s). By then the board has
+usually already reconnected and published `online`, so the stale will lands
+*after* it and leaves a healthy, connected device shown as offline, with
+nothing to correct it until the next reconnect. Matching on `ses` makes that
+message identifiable and discardable.
+
+A device running 2.0.0 or earlier sends no `ses`; a server that supports this
+should treat a will without one as unconditional, exactly as before. The broker
   publishes it when the device disappears without a clean disconnect. Power
   loss or a pulled cable: after ~45 s of keep-alive silence. A reset: as soon
   as the rebooted board reconnects (session takeover), immediately followed by
@@ -98,7 +119,7 @@ message is the only proof the relay actually moved.
 
 | Event | Relay outputs | What the server sees |
 |---|---|---|
-| Power-up / reset / watchdog | **All OFF** | `status` offline (LWT) → online → 4× `state {"on":false,"src":"boot"}` |
+| Power-up / reset / watchdog | **All OFF** | `status` offline (LWT) → online → 4× `state {"on":false,"src":"boot"}`. The relays come up OFF by design; restoring what the operator had set is the SERVER's job, because only it knows whether a timer fell due during the outage |
 | Broker or Wi-Fi lost | **Held** (unchanged) | `status` offline (LWT) |
 | ESP8266 stops answering | **Held** | `status` offline (LWT); MCU resets the ESP and reconnects |
 | Reconnect | Held | `status` online → 4× `state` with current values |

@@ -40,6 +40,14 @@ int cmd_codec_format_state(char *out, size_t cap, bool on, const char *src);
 
 /** {"online":true,"fw":"1.0.0","relays":4}. @return length or -1. */
 int cmd_codec_format_online(char *out, size_t cap, const char *fw,
-                            uint8_t relay_count);
+                            uint8_t relay_count, uint32_t session);
+
+/**
+ * @brief   Format the offline (last will) status for @p session.
+ * @note    Carries the same session id as the online status published on that
+ *          connection, so the server can discard a will that belongs to a
+ *          session which has already been replaced.
+ */
+int cmd_codec_format_offline(char *out, size_t cap, uint32_t session);
 
 #endif /* APP_CMD_CODEC_H_ */

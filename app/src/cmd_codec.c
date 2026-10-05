@@ -255,9 +255,33 @@ int cmd_codec_format_state(char *out, size_t cap, bool on, const char *src)
                         on ? "true" : "false", src), cap);
 }
 
+/*
+ * Both status payloads carry the SESSION id of the connection that produced
+ * them, and the two are built as a pair at every connect.
+ *
+ * WHY: the last will is registered with the broker at CONNECT and published
+ * later, whenever the broker decides that session died. If Wi-Fi vanishes
+ * without a TCP FIN the broker only notices at keep-alive timeout (~45 s),
+ * by which point this device has usually already reconnected and published
+ * "online". The stale will then lands AFTER it and the server is left showing
+ * a connected device as offline, with nothing to correct it until the next
+ * reconnect.
+ *
+ * Tagging both with the same session lets the server discard a will whose
+ * session is not the one currently online. A counter would be ambiguous
+ * across a reboot (it restarts, so an old will could outrank a new session);
+ * an id that simply has to be DIFFERENT from the previous one avoids that.
+ */
 int cmd_codec_format_online(char *out, size_t cap, const char *fw,
-                            uint8_t relay_count)
+                            uint8_t relay_count, uint32_t session)
 {
-    return fit(snprintf(out, cap, "{\"online\":true,\"fw\":\"%s\",\"relays\":%u}",
-                        fw, (unsigned)relay_count), cap);
+    return fit(snprintf(out, cap,
+                        "{\"online\":true,\"fw\":\"%s\",\"relays\":%u,\"ses\":\"%08lx\"}",
+                        fw, (unsigned)relay_count, (unsigned long)session), cap);
+}
+
+int cmd_codec_format_offline(char *out, size_t cap, uint32_t session)
+{
+    return fit(snprintf(out, cap, "{\"online\":false,\"ses\":\"%08lx\"}",
+                        (unsigned long)session), cap);
 }
